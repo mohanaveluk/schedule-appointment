@@ -1,0 +1,49 @@
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'gcr.io/$PROJECT_ID/schedule-appointment:latest', '-t', 'gcr.io/$PROJECT_ID/schedule-appointment:$COMMIT_SHA', '-t', 'gcr.io/$PROJECT_ID/schedule-appointment:$BUILD_ID', '.']
+  id: 'build-image-schedule-appointment'
+  waitFor: ['-']  # The '-' indicates that this step begins immediately.
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['push', 'gcr.io/$PROJECT_ID/schedule-appointment:$COMMIT_SHA']
+  id: 'push-image-to-container-registry'
+  waitFor: ['build-image-schedule-appointment']
+- name: 'gcr.io/cloud-builders/gcloud'
+  args:
+  - 'run'
+  - 'deploy'
+  - 'schedule-appointment'
+  - '--image'
+  - 'gcr.io/$PROJECT_ID/schedule-appointment:$COMMIT_SHA'
+  - '--port'
+  - '80'
+  - '--region'
+  - 'us-central1'
+  - '--platform'
+  - 'managed'
+  - '--allow-unauthenticated'
+  waitFor: ['push-image-to-container-registry']
+  id: 'deploy-to-cloud-run'
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
+  volumes:
+  - name: 'vol1'
+    path: '/nodestarappvolume'
+  entrypoint: '/bin/bash'
+  args: ['-c', 'gcloud builds log $BUILD_ID > /nodestarappvolume/buildlog.log']
+  waitFor: ['deploy-to-cloud-run']
+  id: 'fetch-build-log'
+- name: 'bash'
+  volumes:
+  - name: 'vol1'
+    path: '/nodestarappvolume'
+  # args: ['tar', '-czvf', 'artifacts.tar.gz', 'app', '/nodestarappvolume/buildlog.log']
+  waitFor: ['fetch-build-log']
+  id: 'create-artifacts-zip'
+logsBucket: 'gs://logs-codebuild-schedule-appointment-$PROJECT_ID/$BUILD_ID'
+options:
+  logging: GCS_ONLY
+images:
+- 'gcr.io/$PROJECT_ID/schedule-appointment:latest'
+- 'gcr.io/$PROJECT_ID/schedule-appointment:$COMMIT_SHA'
+- 'gcr.io/$PROJECT_ID/schedule-appointment:$BUILD_ID'
+
+timeout: 1800s
